@@ -1,0 +1,52 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = "ap-south-1"
+        CLUSTER_NAME = "my-cluster"
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/ThulasiKumar379/AWS_EksCluster_Setup.git'
+            }
+        }
+
+        stage('Configure AWS & Deploy') {
+            steps {
+                withAWS(credentials: 'aws-eks-creds', region: "${AWS_REGION}") {
+                    sh """
+                        echo "✅ Updating kubeconfig for cluster: ${CLUSTER_NAME}"
+                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
+
+                        echo "✅ Verifying cluster connectivity"
+                        kubectl get nodes
+
+                        echo "✅ Deploying application with Helm"
+                        cd helm
+                        helm upgrade --install myapp . \
+      --namespace default --create-namespace \
+      -f values-dev.yml
+
+                        echo "✅ Verifying deployment"
+                        kubectl get pods -n default
+                        kubectl get svc -n default
+                    """
+                }
+            }
+        }
+
+        stage('Get LoadBalancer URL') {
+            steps {
+                withAWS(credentials: 'aws-eks-creds', region: "${AWS_REGION}") {
+                    sh """
+                        echo "✅ Fetching LoadBalancer Service URL"
+                        kubectl get svc -n default -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'
+                        echo ""
+                    """
+                }
+            }
+        }
+    }
+}
